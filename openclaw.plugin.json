@@ -1,0 +1,36 @@
+{
+  "id": "minutes",
+  "name": "Minutes",
+  "description": "Local whisper.cpp audio transcription via the Minutes CLI",
+  "activation": {
+    "onStartup": false
+  },
+  "contracts": {
+    "mediaUnderstandingProviders": ["minutes"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "persistMemo": {
+        "type": "boolean",
+        "default": true,
+        "description": "Save transcribed audio as a voice memo in ~/meetings/memos/. Set to false to transcribe without persisting."
+      },
+      "minutesBin": {
+        "type": "string",
+        "default": "minutes",
+        "description": "Path to the minutes binary. Defaults to 'minutes' (must be in PATH) or the MINUTES_BIN env var."
+      },
+      "language": {
+        "type": "string",
+        "description": "Default transcription language code (e.g. 'en', 'es', 'fr'). Overridden per-request when the channel provides a language."
+      },
+      "contentType": {
+        "type": "string",
+        "default": "memo",
+        "description": "Content type passed to minutes process -t. Always 'memo' for voice notes."
+      }
+    }
+  }
+}
