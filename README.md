@@ -16,18 +16,36 @@ Registers Minutes as a `MediaUnderstandingProvider` so **any OpenClaw channel** 
 
 ## Installation
 
+**One-liner** — installs and builds directly from GitHub, then configures OpenClaw:
+
+```bash
+openclaw plugins install github:maosuarez/minutes-openclaw
+curl -fsSL https://raw.githubusercontent.com/maosuarez/minutes-openclaw/master/install.sh | bash
+```
+
+**Custom binary or language:**
+
+```bash
+MINUTES_BIN=/usr/local/bin/minutes MINUTES_LANGUAGE=es \
+  curl -fsSL https://raw.githubusercontent.com/maosuarez/minutes-openclaw/master/install.sh | bash
+```
+
+**From a local clone** (for development or offline):
+
 ```bash
 git clone https://github.com/maosuarez/minutes-openclaw
 cd minutes-openclaw
-npm install && npm run build
-openclaw plugins install .
+openclaw plugins install .   # prepare script builds automatically
+./install.sh
 ```
 
-Or after publishing to npm / ClawHub:
+`install.sh` env vars:
 
-```bash
-openclaw plugins install clawhub:minutes-openclaw
-```
+| Var | Default | Description |
+|---|---|---|
+| `MINUTES_BIN` | `minutes` | Path to the `minutes` binary |
+| `MINUTES_LANGUAGE` | _(auto)_ | Default language code (`en`, `es`, `fr`, …) |
+| `MINUTES_PERSIST_MEMO` | `true` | Set `false` to skip saving `.md` memos |
 
 ## Enable for audio understanding
 
