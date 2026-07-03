@@ -6,45 +6,26 @@ import { runMinutes, type MinutesBackendDeps } from "../src/minutes-backend.js";
 // Test helpers
 // ---------------------------------------------------------------------------
 
-const SAMPLE_MARKDOWN = `---
-title: Voice memo
-model: whisper-small
-date: 2026-06-28
----
-
-## Transcript
-
-Hello, this is a test transcription.
-
-## Action Items
-
-- Follow up on the thing
-`;
-
-const EMPTY_TRANSCRIPT_MARKDOWN = `---
-title: Voice memo
----
-
-## Summary
-
-Some summary.
-`;
-
-function makeOutput(overrides: Partial<{ status: string; file: string; title: string; words: number }> = {}) {
+function makeEnvelope(overrides: Partial<{
+  ok: boolean;
+  text: string;
+  language: string;
+  segments: Array<{ start: number; end: number; text: string; speaker?: string }>;
+  duration_ms: number;
+}> = {}) {
+  const { ok = true, text = "Hello, this is a test transcription.", language = "en", segments = [], duration_ms = 4200 } = overrides;
   return JSON.stringify({
-    status: "done",
-    file: "/home/user/meetings/memos/2026-06-28-memo.md",
-    title: "Voice memo",
-    words: 10,
-    ...overrides,
+    ok,
+    command: "transcribe",
+    data: { text, language, segments, duration_ms },
+    meta: { schemaVersion: 1, generatedAt: "2026-06-30T00:00:00Z" },
   });
 }
 
 function makeDeps(overrides: Partial<MinutesBackendDeps> = {}): MinutesBackendDeps {
   return {
-    exec: async () => ({ stdout: makeOutput(), stderr: "Saved: /home/user/meetings/memos/2026-06-28-memo.md" }),
+    exec: async () => ({ stdout: makeEnvelope(), stderr: "" }),
     writeTemp: async (_buffer, ext) => `/tmp/minutes-openclaw-test${ext}`,
-    readFile: async () => SAMPLE_MARKDOWN,
     unlink: async () => {},
     ...overrides,
   };
@@ -55,7 +36,7 @@ function makeDeps(overrides: Partial<MinutesBackendDeps> = {}): MinutesBackendDe
 // ---------------------------------------------------------------------------
 
 describe("runMinutes — CLI args", () => {
-  it("passes 'process', temp path, '-t', 'memo' as core args", async () => {
+  it("passes 'transcribe', temp path, '--json' as core args", async () => {
     let capturedBin = "";
     let capturedArgs: string[] = [];
 
@@ -64,7 +45,6 @@ describe("runMinutes — CLI args", () => {
         buffer: Buffer.from("audio-bytes"),
         fileName: "voice.wav",
         timeoutMs: 5_000,
-        persistMemo: true,
         minutesBin: "minutes",
       },
       makeDeps({
@@ -72,16 +52,15 @@ describe("runMinutes — CLI args", () => {
         exec: async (bin, args) => {
           capturedBin = bin;
           capturedArgs = args;
-          return { stdout: makeOutput({ file: "/tmp/memo.md" }), stderr: "" };
+          return { stdout: makeEnvelope(), stderr: "" };
         },
       }),
     );
 
     expect(capturedBin).toBe("minutes");
-    expect(capturedArgs[0]).toBe("process");
+    expect(capturedArgs[0]).toBe("transcribe");
     expect(capturedArgs[1]).toBe("/tmp/test.wav");
-    expect(capturedArgs[2]).toBe("-t");
-    expect(capturedArgs[3]).toBe("memo");
+    expect(capturedArgs[2]).toBe("--json");
     expect(capturedArgs).not.toContain("-l");
   });
 
@@ -94,13 +73,12 @@ describe("runMinutes — CLI args", () => {
         fileName: "voice.ogg",
         language: "es",
         timeoutMs: 5_000,
-        persistMemo: true,
         minutesBin: "minutes",
       },
       makeDeps({
         exec: async (_bin, args) => {
           capturedArgs = args;
-          return { stdout: makeOutput({ file: "/tmp/memo.md" }), stderr: "" };
+          return { stdout: makeEnvelope(), stderr: "" };
         },
       }),
     );
@@ -119,13 +97,12 @@ describe("runMinutes — CLI args", () => {
         fileName: "voice.mp3",
         language: "  ",
         timeoutMs: 5_000,
-        persistMemo: true,
         minutesBin: "minutes",
       },
       makeDeps({
         exec: async (_bin, args) => {
           capturedArgs = args;
-          return { stdout: makeOutput({ file: "/tmp/memo.md" }), stderr: "" };
+          return { stdout: makeEnvelope(), stderr: "" };
         },
       }),
     );
@@ -141,13 +118,12 @@ describe("runMinutes — CLI args", () => {
         buffer: Buffer.from("audio"),
         fileName: "note.wav",
         timeoutMs: 5_000,
-        persistMemo: true,
         minutesBin: "/opt/homebrew/bin/minutes",
       },
       makeDeps({
         exec: async (bin) => {
           capturedBin = bin;
-          return { stdout: makeOutput({ file: "/tmp/memo.md" }), stderr: "" };
+          return { stdout: makeEnvelope(), stderr: "" };
         },
       }),
     );
@@ -164,7 +140,7 @@ describe("runMinutes — extension from fileName / mime", () => {
   it("uses .wav extension from fileName", async () => {
     let writtenExt = "";
     await runMinutes(
-      { buffer: Buffer.from("x"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("x"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({ writeTemp: async (_buf, ext) => { writtenExt = ext; return `/tmp/test${ext}`; } }),
     );
     expect(writtenExt).toBe(".wav");
@@ -173,7 +149,7 @@ describe("runMinutes — extension from fileName / mime", () => {
   it("uses .ogg extension from fileName for WhatsApp voice notes", async () => {
     let writtenExt = "";
     await runMinutes(
-      { buffer: Buffer.from("x"), fileName: "PTT-20260628.ogg", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("x"), fileName: "PTT-20260628.ogg", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({ writeTemp: async (_buf, ext) => { writtenExt = ext; return `/tmp/test${ext}`; } }),
     );
     expect(writtenExt).toBe(".ogg");
@@ -182,7 +158,7 @@ describe("runMinutes — extension from fileName / mime", () => {
   it("falls back to .wav when MIME is unknown and fileName has no extension", async () => {
     let writtenExt = "";
     await runMinutes(
-      { buffer: Buffer.from("x"), fileName: "audio", mime: "application/octet-stream", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("x"), fileName: "audio", mime: "application/octet-stream", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({ writeTemp: async (_buf, ext) => { writtenExt = ext; return `/tmp/test${ext}`; } }),
     );
     expect(writtenExt).toBe(".wav");
@@ -191,7 +167,7 @@ describe("runMinutes — extension from fileName / mime", () => {
   it("uses .mp3 from MIME when fileName has no extension", async () => {
     let writtenExt = "";
     await runMinutes(
-      { buffer: Buffer.from("x"), fileName: "audio", mime: "audio/mpeg", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("x"), fileName: "audio", mime: "audio/mpeg", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({ writeTemp: async (_buf, ext) => { writtenExt = ext; return `/tmp/test${ext}`; } }),
     );
     expect(writtenExt).toBe(".mp3");
@@ -203,111 +179,82 @@ describe("runMinutes — extension from fileName / mime", () => {
 // ---------------------------------------------------------------------------
 
 describe("runMinutes — stdout parsing", () => {
-  it("returns transcript text from the markdown file", async () => {
+  it("returns transcript text from the JSON envelope", async () => {
     const result = await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-      makeDeps({ readFile: async () => SAMPLE_MARKDOWN }),
+      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
+      makeDeps({ exec: async () => ({ stdout: makeEnvelope({ text: "Hello, this is a test transcription." }), stderr: "" }) }),
     );
     expect(result.text).toBe("Hello, this is a test transcription.");
   });
 
-  it("reads model from frontmatter", async () => {
+  it("reports the whisper.cpp model constant", async () => {
     const result = await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-      makeDeps({ readFile: async () => SAMPLE_MARKDOWN }),
-    );
-    expect(result.model).toBe("whisper-small");
-  });
-
-  it("falls back to 'whisper.cpp' when frontmatter has no model field", async () => {
-    const result = await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-      makeDeps({ readFile: async () => EMPTY_TRANSCRIPT_MARKDOWN }),
+      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
+      makeDeps(),
     );
     expect(result.model).toBe("whisper.cpp");
   });
 
-  it("returns empty string when markdown has no Transcript section", async () => {
+  it("returns empty string when the transcript is empty", async () => {
     const result = await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-      makeDeps({ readFile: async () => EMPTY_TRANSCRIPT_MARKDOWN }),
+      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
+      makeDeps({ exec: async () => ({ stdout: makeEnvelope({ text: "" }), stderr: "" }) }),
     );
     expect(result.text).toBe("");
   });
 
   it("handles pretty-printed multi-line JSON stdout", async () => {
     const prettyOutput = JSON.stringify(
-      { status: "done", file: "/tmp/memo.md", title: "Test", words: 5 },
+      JSON.parse(makeEnvelope({ text: "Pretty printed." })),
       null,
       2,
     );
     const result = await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({ exec: async () => ({ stdout: prettyOutput, stderr: "" }) }),
     );
-    expect(result.text).toBeDefined();
+    expect(result.text).toBe("Pretty printed.");
   });
 
   it("throws when stdout is not valid JSON", async () => {
     await expect(
       runMinutes(
-        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
         makeDeps({ exec: async () => ({ stdout: "not json", stderr: "" }) }),
       ),
     ).rejects.toThrow("failed to parse minutes output");
   });
 
-  it("throws when status is not 'done'", async () => {
+  it("throws when ok is false", async () => {
     await expect(
       runMinutes(
-        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-        makeDeps({ exec: async () => ({ stdout: JSON.stringify({ status: "error" }), stderr: "" }) }),
+        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
+        makeDeps({ exec: async () => ({ stdout: makeEnvelope({ ok: false }), stderr: "" }) }),
+      ),
+    ).rejects.toThrow("unexpected output");
+  });
+
+  it("throws when data.text is missing", async () => {
+    await expect(
+      runMinutes(
+        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
+        makeDeps({ exec: async () => ({ stdout: JSON.stringify({ ok: true, command: "transcribe", data: {} }), stderr: "" }) }),
       ),
     ).rejects.toThrow("unexpected output");
   });
 });
 
 // ---------------------------------------------------------------------------
-// persistMemo toggle
+// Temp file cleanup
 // ---------------------------------------------------------------------------
 
-describe("runMinutes — persistMemo", () => {
-  it("does NOT delete the memo file when persistMemo is true", async () => {
-    const deletedPaths: string[] = [];
-    const MEMO = "/home/user/meetings/memos/memo.md";
-
-    await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
-      makeDeps({
-        exec: async () => ({ stdout: makeOutput({ file: MEMO }), stderr: "" }),
-        unlink: async (p) => { deletedPaths.push(p); },
-      }),
-    );
-
-    expect(deletedPaths).not.toContain(MEMO);
-  });
-
-  it("DOES delete the memo file when persistMemo is false", async () => {
-    const deletedPaths: string[] = [];
-    const MEMO = "/home/user/meetings/memos/ephemeral.md";
-
-    await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: false, minutesBin: "minutes" },
-      makeDeps({
-        exec: async () => ({ stdout: makeOutput({ file: MEMO }), stderr: "" }),
-        unlink: async (p) => { deletedPaths.push(p); },
-      }),
-    );
-
-    expect(deletedPaths).toContain(MEMO);
-  });
-
-  it("always deletes the temp audio file regardless of persistMemo", async () => {
+describe("runMinutes — temp file cleanup", () => {
+  it("always deletes the temp audio file on success", async () => {
     const deletedPaths: string[] = [];
     const TEMP = "/tmp/minutes-openclaw-testtest.wav";
 
     await runMinutes(
-      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+      { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
       makeDeps({
         writeTemp: async (_buf, ext) => TEMP,
         unlink: async (p) => { deletedPaths.push(p); },
@@ -323,7 +270,7 @@ describe("runMinutes — persistMemo", () => {
 
     await expect(
       runMinutes(
-        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, persistMemo: true, minutesBin: "minutes" },
+        { buffer: Buffer.from("audio"), fileName: "voice.wav", timeoutMs: 5_000, minutesBin: "minutes" },
         makeDeps({
           writeTemp: async (_buf, ext) => TEMP,
           exec: async () => { throw new Error("minutes not found"); },
@@ -367,7 +314,6 @@ describe("runMinutes — live", () => {
         fileName: "demo.wav",
         mime: "audio/wav",
         timeoutMs: 120_000,
-        persistMemo: false,
         minutesBin: process.env["MINUTES_BIN"] ?? "minutes",
       },
       defaultDeps,

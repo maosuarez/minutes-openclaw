@@ -1,16 +1,15 @@
 /**
  * Bridge between OpenClaw's MediaUnderstandingProvider contract and the
- * `minutes process` CLI command.
+ * `minutes transcribe --json` CLI command.
  *
  * All I/O dependencies are injectable so unit tests run without disk or
  * process access. Production code uses `defaultDeps`.
  */
 import { spawn } from "node:child_process";
-import { readFile as fsReadFile, unlink as fsUnlink, writeFile } from "node:fs/promises";
+import { unlink as fsUnlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { extractFrontmatterModel, extractTranscript } from "./transcript.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -25,8 +24,6 @@ export type MinutesBackendDeps = {
   ) => Promise<{ stdout: string; stderr: string }>;
   /** Write `buffer` to a unique temp file with the given extension; return its path. */
   writeTemp: (buffer: Buffer, extension: string) => Promise<string>;
-  /** Read a file as a UTF-8 string. */
-  readFile: (filePath: string) => Promise<string>;
   /** Delete a file; errors are ignored by the caller (best-effort cleanup). */
   unlink: (filePath: string) => Promise<void>;
 };
@@ -40,17 +37,24 @@ export type RunMinutesParams = {
   /** Language code (e.g. "en", "es"). Omit to use whisper auto-detect. */
   language?: string;
   timeoutMs: number;
-  /** When false, the .md memo created by `minutes process` is deleted after reading. */
-  persistMemo: boolean;
   /** Path or name of the minutes binary. Defaults to "minutes". */
   minutesBin: string;
 };
 
-type MinutesProcessOutput = {
-  status: string;
-  file: string;
-  title?: string;
-  words?: number;
+/**
+ * Shape of `minutes transcribe --json` stdout. Only the fields this backend
+ * consumes are typed; see upstream `TranscribeOutput` in crates/cli for the
+ * full contract (schema version 1).
+ */
+type TranscribeJsonEnvelope = {
+  ok: boolean;
+  command: string;
+  data: {
+    text: string;
+    language: string;
+    segments: Array<{ start: number; end: number; text: string; speaker?: string }>;
+    duration_ms: number;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -96,11 +100,12 @@ function getAudioExtension(fileName: string, mime?: string): string {
 /**
  * Transcribes audio by:
  * 1. Writing the buffer to a temp file with the correct extension.
- * 2. Spawning `minutesBin process <temp> -t memo [-l language]`.
- * 3. Parsing the JSON stdout to get the output .md path.
- * 4. Reading the .md and extracting the `## Transcript` section.
- * 5. Optionally deleting the .md (when persistMemo is false).
- * 6. Always deleting the temp audio file.
+ * 2. Spawning `minutesBin transcribe <temp> --json [-l language]`.
+ * 3. Parsing the JSON envelope's `data.text` field.
+ * 4. Always deleting the temp audio file.
+ *
+ * No meeting files are written and nothing is persisted to disk beyond the
+ * temp audio file, which is removed in the `finally` block below.
  */
 export async function runMinutes(
   params: RunMinutesParams,
@@ -110,7 +115,7 @@ export async function runMinutes(
   const tempPath = await deps.writeTemp(params.buffer, ext);
 
   try {
-    const args = ["process", tempPath, "-t", "memo"];
+    const args = ["transcribe", tempPath, "--json"];
     const lang = params.language?.trim();
     if (lang) {
       args.push("-l", lang);
@@ -118,9 +123,9 @@ export async function runMinutes(
 
     const { stdout } = await deps.exec(params.minutesBin, args, params.timeoutMs);
 
-    let output: MinutesProcessOutput;
+    let envelope: TranscribeJsonEnvelope;
     try {
-      output = JSON.parse(stdout.trim()) as MinutesProcessOutput;
+      envelope = JSON.parse(stdout.trim()) as TranscribeJsonEnvelope;
     } catch {
       throw new Error(
         `minutes-openclaw: failed to parse minutes output as JSON.\n` +
@@ -128,22 +133,13 @@ export async function runMinutes(
       );
     }
 
-    if (output.status !== "done" || !output.file) {
+    if (!envelope.ok || typeof envelope.data?.text !== "string") {
       throw new Error(
-        `minutes-openclaw: unexpected output from minutes process: ${JSON.stringify(output)}`,
+        `minutes-openclaw: unexpected output from minutes transcribe: ${JSON.stringify(envelope)}`,
       );
     }
 
-    const memoPath = output.file;
-    const markdown = await deps.readFile(memoPath);
-    const text = extractTranscript(markdown);
-    const model = extractFrontmatterModel(markdown) ?? "whisper.cpp";
-
-    if (!params.persistMemo) {
-      await deps.unlink(memoPath).catch(() => {});
-    }
-
-    return { text, model };
+    return { text: envelope.data.text, model: "whisper.cpp" };
   } finally {
     // Always remove the temp audio file regardless of success or failure.
     await deps.unlink(tempPath).catch(() => {});
@@ -202,10 +198,6 @@ async function defaultWriteTemp(buffer: Buffer, extension: string): Promise<stri
   return filePath;
 }
 
-async function defaultReadFile(filePath: string): Promise<string> {
-  return fsReadFile(filePath, "utf8");
-}
-
 async function defaultUnlink(filePath: string): Promise<void> {
   await fsUnlink(filePath);
 }
@@ -213,6 +205,5 @@ async function defaultUnlink(filePath: string): Promise<void> {
 export const defaultDeps: MinutesBackendDeps = {
   exec: defaultExec,
   writeTemp: defaultWriteTemp,
-  readFile: defaultReadFile,
   unlink: defaultUnlink,
 };

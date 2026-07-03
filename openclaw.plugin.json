@@ -12,11 +12,6 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "persistMemo": {
-        "type": "boolean",
-        "default": true,
-        "description": "Save transcribed audio as a voice memo in ~/meetings/memos/. Set to false to transcribe without persisting."
-      },
       "minutesBin": {
         "type": "string",
         "default": "minutes",
@@ -25,11 +20,6 @@
       "language": {
         "type": "string",
         "description": "Default transcription language code (e.g. 'en', 'es', 'fr'). Overridden per-request when the channel provides a language."
-      },
-      "contentType": {
-        "type": "string",
-        "default": "memo",
-        "description": "Content type passed to minutes process -t. Always 'memo' for voice notes."
       }
     }
   }

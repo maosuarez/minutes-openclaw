@@ -1,6 +1,6 @@
 {
   "name": "minutes-openclaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local whisper.cpp transcription via Minutes for OpenClaw",
   "type": "module",
   "files": [

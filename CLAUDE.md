@@ -46,21 +46,22 @@ index.ts                        Plugin entry — registers the provider with Ope
 src/
   provider.ts                   MediaUnderstandingProvider contract + createMinutesProvider factory
   minutes-backend.ts            Core bridge: writes temp file → spawns minutes CLI → parses output
-  transcript.ts                 Parses ## Transcript section and model field from minutes .md output
 test/
   provider.test.ts              Contract tests (id, capabilities, auth, priority, transcribeAudio)
-  minutes-backend.test.ts       Full coverage of CLI args, extension detection, JSON parsing, persistMemo
+  minutes-backend.test.ts       Full coverage of CLI args, extension detection, JSON parsing
 ```
 
 ### Data flow
 
 `OpenClaw audio request` → `provider.ts:transcribeAudio` → `minutes-backend.ts:runMinutes`:
 1. Buffer written to temp file (extension from `fileName` or MIME)
-2. `minutes process <temp> -t memo [-l <lang>]` spawned
-3. JSON stdout parsed for `{ status: "done", file: "<memo.md>" }`
-4. `## Transcript` section extracted from the .md via `transcript.ts`
-5. YAML frontmatter `model:` field read and returned
-6. Temp file always deleted; memo deleted only when `persistMemo: false`
+2. `minutes transcribe <temp> --json [-l <lang>]` spawned — requires a `minutes` build
+   with [silverstein/minutes#380](https://github.com/silverstein/minutes/pull/380)
+3. JSON envelope parsed: `{ ok, data: { text, language, segments, duration_ms } }`
+4. `data.text` returned as-is; `model` is reported as the constant `"whisper.cpp"`
+   (the envelope doesn't carry the specific model file used)
+5. Temp file always deleted. No meeting files are ever written — there is nothing
+   else to clean up.
 
 ### Priority
 
@@ -68,11 +69,11 @@ test/
 
 ### Testability pattern
 
-`MinutesBackendDeps` in `minutes-backend.ts` injects all I/O (`exec`, `writeTemp`, `readFile`, `unlink`). Unit tests use `makeDeps()` helpers that never touch disk or spawn processes. The live test at the bottom of `minutes-backend.test.ts` is the only test that calls the real binary, and it's gated by `MINUTES_OPENCLAW_LIVE=1`.
+`MinutesBackendDeps` in `minutes-backend.ts` injects all I/O (`exec`, `writeTemp`, `unlink`). Unit tests use `makeDeps()` helpers that never touch disk or spawn processes. The live test at the bottom of `minutes-backend.test.ts` is the only test that calls the real binary, and it's gated by `MINUTES_OPENCLAW_LIVE=1`.
 
 ## OpenClaw plugin contract
 
-- `openclaw.plugin.json` declares `contracts.mediaUnderstandingProviders: ["minutes"]` and the config schema (`persistMemo`, `minutesBin`, `language`).
+- `openclaw.plugin.json` declares `contracts.mediaUnderstandingProviders: ["minutes"]` and the config schema (`minutesBin`, `language`).
 - The plugin uses `definePluginEntry` from `openclaw/plugin-sdk/plugin-entry` (peer dep, `devDependencies` only).
 - `resolveAuth` returns `{ kind: "none" }` — no API key is needed.
 - `defaultModels: { audio: "whisper.cpp" }` is required by OpenClaw's provider resolution.
@@ -81,6 +82,10 @@ test/
 
 | Key | Default | Description |
 |---|---|---|
-| `persistMemo` | `true` | Save the .md memo to `~/meetings/memos/` |
 | `minutesBin` | `"minutes"` (or `$MINUTES_BIN`) | Path to the `minutes` binary |
 | `language` | — | Default language code; per-request language takes precedence |
+
+Versions `<0.2.0` shelled out to `minutes process -t memo` and scraped the generated
+`.md` memo's `## Transcript` section, with a `persistMemo` option controlling whether
+that memo file was kept. `0.2.0+` uses `minutes transcribe --json` instead, which
+writes no files at all, so `persistMemo` was removed rather than deprecated.

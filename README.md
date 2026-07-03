@@ -6,7 +6,11 @@ Registers Minutes as a `MediaUnderstandingProvider` so **any OpenClaw channel** 
 
 ## Requirements
 
-- **`minutes` binary in PATH** (or set `MINUTES_BIN=/path/to/minutes`)
+- **`minutes` binary in PATH** (or set `MINUTES_BIN=/path/to/minutes`) that includes the
+  `minutes transcribe --json` command (added upstream in
+  [silverstein/minutes#380](https://github.com/silverstein/minutes/pull/380), merged to
+  `main` after `v0.19.0`). If `minutes --help` doesn't list a `transcribe` subcommand,
+  build from source or wait for the next tagged release.
   - Install: `cargo install minutes-cli` or download from [github.com/silverstein/minutes/releases](https://github.com/silverstein/minutes/releases)
 - **Whisper model downloaded**: `minutes setup --model small`
 - **ffmpeg** (recommended for ogg/opus/webm from WhatsApp/Telegram):
@@ -45,7 +49,6 @@ openclaw plugins install .   # prepare script builds automatically
 |---|---|---|
 | `MINUTES_BIN` | `minutes` | Path to the `minutes` binary |
 | `MINUTES_LANGUAGE` | _(auto)_ | Default language code (`en`, `es`, `fr`, …) |
-| `MINUTES_PERSIST_MEMO` | `true` | Set `false` to skip saving `.md` memos |
 
 ## Enable for audio understanding
 
@@ -73,10 +76,14 @@ openclaw infer audio transcribe --file /path/to/audio.wav --json
 When OpenClaw receives a voice note attachment:
 
 1. The audio buffer is written to a temp file.
-2. `minutes process <temp> -t memo` is called locally — whisper.cpp transcribes it.
-3. The resulting `.md` file in `~/meetings/memos/` is read; the `## Transcript` section is extracted.
-4. The text is returned to OpenClaw for delivery.
-5. The temp audio file is always deleted. The memo `.md` is kept by default (`persistMemo: true`).
+2. `minutes transcribe <temp> --json [-l language]` is called locally — whisper.cpp
+   transcribes it and prints a JSON envelope to stdout. No meeting files are written
+   and no summarization runs.
+3. `data.text` from the envelope is returned to OpenClaw for delivery.
+4. The temp audio file is always deleted.
+
+Nothing is persisted to disk beyond the temp audio file, which is removed as soon as
+transcription finishes (or fails).
 
 ## Priority
 
@@ -86,10 +93,8 @@ When OpenClaw receives a voice note attachment:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `persistMemo` | boolean | `true` | Save transcription as a memo in `~/meetings/memos/` |
 | `minutesBin` | string | `"minutes"` | Path to the `minutes` binary (or set `MINUTES_BIN` env var) |
 | `language` | string | _(auto)_ | Default language code (`"en"`, `"es"`, `"fr"`, …) |
-| `contentType` | string | `"memo"` | Always `"memo"` for voice notes |
 
 ## Development
 
@@ -107,10 +112,14 @@ MINUTES_OPENCLAW_LIVE=1 npm test   # transcribes test/fixtures/demo.wav
 This is a community-owned package, independent of the Minutes core release train
 (per the maintainer's guidance on coupling — OpenClaw ships ~monthly with an
 evolving `pluginApi`, so the plugin tracks OpenClaw on its own cadence):
-- Version `0.1.0`, independent of the Minutes workspace version.
+- Version `0.2.0`, independent of the Minutes workspace version.
 - No source imports from Minutes crates — the sole runtime dependency is the
   `minutes` binary, invoked via subprocess.
 - Pinned to OpenClaw's `pluginApi` / `pluginSdkVersion` in `package.json`.
-- Today it shells out to `minutes process` and extracts the `## Transcript`
-  section. It will migrate to the stable `minutes transcribe --json` contract
-  (upstream issue #376) once that command lands.
+- Shells out to the stable `minutes transcribe --json` contract
+  ([silverstein/minutes#376](https://github.com/silverstein/minutes/issues/376),
+  shipped in [#380](https://github.com/silverstein/minutes/pull/380)) instead of
+  scraping a generated markdown memo. No meeting files are written by this plugin
+  — earlier versions (`<0.2.0`) shelled out to `minutes process -t memo` and had a
+  `persistMemo` option to keep that memo file; that option is gone since the new
+  contract never creates one.

@@ -14,8 +14,6 @@ import type {
 import { defaultDeps, runMinutes, type MinutesBackendDeps } from "./minutes-backend.js";
 
 export type MinutesProviderConfig = {
-  /** Save transcribed audio as a .md memo in ~/meetings/memos/. Default: true. */
-  persistMemo: boolean;
   /** Path or name of the minutes binary. Default: MINUTES_BIN env or "minutes". */
   minutesBin: string;
   /** Default language code when the channel does not provide one. */
@@ -23,7 +21,6 @@ export type MinutesProviderConfig = {
 };
 
 const DEFAULT_CONFIG: MinutesProviderConfig = {
-  persistMemo: true,
   minutesBin: process.env["MINUTES_BIN"] ?? "minutes",
 };
 
@@ -57,7 +54,6 @@ export function createMinutesProvider(
           // Per-request language wins over provider default.
           language: req.language ?? config.language,
           timeoutMs: req.timeoutMs,
-          persistMemo: config.persistMemo,
           minutesBin: config.minutesBin,
         },
         deps,

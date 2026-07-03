@@ -8,31 +8,19 @@ import type { MinutesBackendDeps } from "../src/minutes-backend.js";
 // Shared test data
 // ---------------------------------------------------------------------------
 
-const MEMO_MARKDOWN = `---
-title: Test memo
-model: whisper-tiny
-date: 2026-06-28
----
-
-## Transcript
-
-Testing one two three.
-
-## Action Items
-
-- None
-`;
-
-const MEMO_PATH = "/home/user/meetings/memos/2026-06-28-test.md";
+function makeEnvelope(text = "Testing one two three.") {
+  return JSON.stringify({
+    ok: true,
+    command: "transcribe",
+    data: { text, language: "en", segments: [], duration_ms: 1200 },
+    meta: { schemaVersion: 1, generatedAt: "2026-06-30T00:00:00Z" },
+  });
+}
 
 function makeMinutesDeps(overrides: Partial<MinutesBackendDeps> = {}): MinutesBackendDeps {
   return {
-    exec: async () => ({
-      stdout: JSON.stringify({ status: "done", file: MEMO_PATH, title: "Test memo", words: 4 }),
-      stderr: "",
-    }),
+    exec: async () => ({ stdout: makeEnvelope(), stderr: "" }),
     writeTemp: async (_buf, ext) => `/tmp/prov-test${ext}`,
-    readFile: async () => MEMO_MARKDOWN,
     unlink: async () => {},
     ...overrides,
   };
@@ -78,9 +66,9 @@ describe("minutesMediaUnderstandingProvider — contract", () => {
 // ---------------------------------------------------------------------------
 
 describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
-  it("returns text from the transcript section", async () => {
+  it("returns text from the JSON envelope", async () => {
     const deps = makeMinutesDeps();
-    const provider = createMinutesProvider({ persistMemo: true, minutesBin: "minutes" }, deps);
+    const provider = createMinutesProvider({ minutesBin: "minutes" }, deps);
 
     const result = await provider.transcribeAudio!({
       buffer: Buffer.from("audio"),
@@ -92,9 +80,9 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
     expect(result.text).toBe("Testing one two three.");
   });
 
-  it("returns model from frontmatter", async () => {
+  it("reports the whisper.cpp model constant", async () => {
     const deps = makeMinutesDeps();
-    const provider = createMinutesProvider({ persistMemo: true, minutesBin: "minutes" }, deps);
+    const provider = createMinutesProvider({ minutesBin: "minutes" }, deps);
 
     const result = await provider.transcribeAudio!({
       buffer: Buffer.from("audio"),
@@ -103,7 +91,7 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
       timeoutMs: 5_000,
     });
 
-    expect(result.model).toBe("whisper-tiny");
+    expect(result.model).toBe("whisper.cpp");
   });
 
   it("passes per-request language to minutes", async () => {
@@ -111,10 +99,10 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
     const deps = makeMinutesDeps({
       exec: async (_bin, args) => {
         capturedArgs = args;
-        return { stdout: JSON.stringify({ status: "done", file: MEMO_PATH }), stderr: "" };
+        return { stdout: makeEnvelope(), stderr: "" };
       },
     });
-    const provider = createMinutesProvider({ persistMemo: true, minutesBin: "minutes" }, deps);
+    const provider = createMinutesProvider({ minutesBin: "minutes" }, deps);
 
     await provider.transcribeAudio!({
       buffer: Buffer.from("audio"),
@@ -134,11 +122,11 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
     const deps = makeMinutesDeps({
       exec: async (_bin, args) => {
         capturedArgs = args;
-        return { stdout: JSON.stringify({ status: "done", file: MEMO_PATH }), stderr: "" };
+        return { stdout: makeEnvelope(), stderr: "" };
       },
     });
     const provider = createMinutesProvider(
-      { persistMemo: true, minutesBin: "minutes", language: "de" },
+      { minutesBin: "minutes", language: "de" },
       deps,
     );
 
@@ -159,11 +147,11 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
     const deps = makeMinutesDeps({
       exec: async (bin) => {
         capturedBin = bin;
-        return { stdout: JSON.stringify({ status: "done", file: MEMO_PATH }), stderr: "" };
+        return { stdout: makeEnvelope(), stderr: "" };
       },
     });
     const provider = createMinutesProvider(
-      { persistMemo: true, minutesBin: "/usr/local/bin/minutes" },
+      { minutesBin: "/usr/local/bin/minutes" },
       deps,
     );
 
@@ -177,12 +165,13 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
     expect(capturedBin).toBe("/usr/local/bin/minutes");
   });
 
-  it("deletes memo when persistMemo is false", async () => {
+  it("always deletes the temp audio file", async () => {
     const deletedPaths: string[] = [];
     const deps = makeMinutesDeps({
+      writeTemp: async (_buf, ext) => `/tmp/prov-cleanup-test${ext}`,
       unlink: async (p) => { deletedPaths.push(p); },
     });
-    const provider = createMinutesProvider({ persistMemo: false, minutesBin: "minutes" }, deps);
+    const provider = createMinutesProvider({ minutesBin: "minutes" }, deps);
 
     await provider.transcribeAudio!({
       buffer: Buffer.from("audio"),
@@ -191,23 +180,6 @@ describe("minutesMediaUnderstandingProvider — transcribeAudio", () => {
       timeoutMs: 5_000,
     });
 
-    expect(deletedPaths).toContain(MEMO_PATH);
-  });
-
-  it("keeps memo when persistMemo is true", async () => {
-    const deletedPaths: string[] = [];
-    const deps = makeMinutesDeps({
-      unlink: async (p) => { deletedPaths.push(p); },
-    });
-    const provider = createMinutesProvider({ persistMemo: true, minutesBin: "minutes" }, deps);
-
-    await provider.transcribeAudio!({
-      buffer: Buffer.from("audio"),
-      fileName: "voice.wav",
-      apiKey: "",
-      timeoutMs: 5_000,
-    });
-
-    expect(deletedPaths).not.toContain(MEMO_PATH);
+    expect(deletedPaths).toContain("/tmp/prov-cleanup-test.wav");
   });
 });

@@ -3,9 +3,8 @@
 # Run this after: openclaw plugins install github:maosuarez/minutes-openclaw
 #
 # Env vars (all optional):
-#   MINUTES_BIN          Path to the minutes binary (default: "minutes")
-#   MINUTES_LANGUAGE     Default language code, e.g. "es", "en" (default: auto-detect)
-#   MINUTES_PERSIST_MEMO Save .md memos in ~/meetings/memos/ — true|false (default: true)
+#   MINUTES_BIN       Path to the minutes binary (default: "minutes")
+#   MINUTES_LANGUAGE  Default language code, e.g. "es", "en" (default: auto-detect)
 #
 # Example:
 #   MINUTES_BIN=/usr/local/bin/minutes MINUTES_LANGUAGE=es ./install.sh
@@ -14,7 +13,6 @@ set -euo pipefail
 
 MINUTES_BIN="${MINUTES_BIN:-minutes}"
 MINUTES_LANGUAGE="${MINUTES_LANGUAGE:-}"
-MINUTES_PERSIST_MEMO="${MINUTES_PERSIST_MEMO:-true}"
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
 
@@ -56,11 +54,6 @@ fi
 if [ -n "$MINUTES_LANGUAGE" ]; then
   [ -n "$PLUGIN_PATCH" ] && PLUGIN_PATCH="$PLUGIN_PATCH, "
   PLUGIN_PATCH="${PLUGIN_PATCH}language: \"$MINUTES_LANGUAGE\""
-fi
-
-if [ "$MINUTES_PERSIST_MEMO" = "false" ]; then
-  [ -n "$PLUGIN_PATCH" ] && PLUGIN_PATCH="$PLUGIN_PATCH, "
-  PLUGIN_PATCH="${PLUGIN_PATCH}persistMemo: false"
 fi
 
 if [ -n "$PLUGIN_PATCH" ]; then
