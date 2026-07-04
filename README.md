@@ -4,72 +4,86 @@ Local whisper.cpp audio transcription for OpenClaw, powered by the [Minutes](htt
 
 Registers Minutes as a `MediaUnderstandingProvider` so **any OpenClaw channel** (WhatsApp, Telegram, etc.) gets private offline transcription without sending audio to a cloud API.
 
-## Requirements
-
-- **`minutes` binary in PATH** (or set `MINUTES_BIN=/path/to/minutes`) that includes the
-  `minutes transcribe --json` command (added upstream in
-  [silverstein/minutes#380](https://github.com/silverstein/minutes/pull/380), merged to
-  `main` after `v0.19.0`). If `minutes --help` doesn't list a `transcribe` subcommand,
-  build from source or wait for the next tagged release.
-  - Install: `cargo install minutes-cli` or download from [github.com/silverstein/minutes/releases](https://github.com/silverstein/minutes/releases)
-- **Whisper model downloaded**: `minutes setup --model small`
-- **ffmpeg** (recommended for ogg/opus/webm from WhatsApp/Telegram):
-  - macOS: `brew install ffmpeg`
-  - Linux: `apt install ffmpeg`
-  - Without ffmpeg, WAV and MP3 are still supported natively
+---
 
 ## Installation
 
-**One-liner** — installs and builds directly from GitHub, then configures OpenClaw:
+Follow these steps in order.
+
+### Prerequisites
+
+Before installing this plugin, you need:
+
+1. **`minutes` binary** (v0.19.0+ with `minutes transcribe --json` support)
+   - Check: `minutes --help` should list a `transcribe` subcommand
+   - If not found, install: `cargo install minutes-cli` or download from [github.com/silverstein/minutes/releases](https://github.com/silverstein/minutes/releases)
+   - Supported as `minutes` in PATH, or via `MINUTES_BIN` environment variable
+   - See [silverstein/minutes#380](https://github.com/silverstein/minutes/pull/380) for the contract
+
+2. **Whisper model downloaded**
+   - Run: `minutes setup --model small`
+   - Other models available: `large`, `medium`, `tiny` (smaller = faster, lower accuracy)
+
+3. **ffmpeg** (optional but recommended for WhatsApp/Telegram audio)
+   - macOS: `brew install ffmpeg`
+   - Linux: `apt install ffmpeg`
+   - Without it, WAV and MP3 still work natively; ogg/opus/webm require ffmpeg
+
+### Install the plugin
+
+**Option A — From GitHub (recommended, one-liner):**
 
 ```bash
 openclaw plugins install github:maosuarez/minutes-openclaw
 curl -fsSL https://raw.githubusercontent.com/maosuarez/minutes-openclaw/master/install.sh | bash
 ```
 
-**Custom binary or language:**
+With custom binary or language:
 
 ```bash
 MINUTES_BIN=/usr/local/bin/minutes MINUTES_LANGUAGE=es \
   curl -fsSL https://raw.githubusercontent.com/maosuarez/minutes-openclaw/master/install.sh | bash
 ```
 
-**From a local clone** (for development or offline):
+**Option B — From a local clone** (for development or offline):
 
 ```bash
 git clone https://github.com/maosuarez/minutes-openclaw
 cd minutes-openclaw
-openclaw plugins install .   # prepare script builds automatically
+openclaw plugins install .
 ./install.sh
 ```
 
-`install.sh` env vars:
+The `install.sh` script will:
+- Enable audio transcription in `tools.media.audio.models`
+- Apply plugin config (custom binary path, language)
+- Run `openclaw plugins doctor` to verify setup
 
-| Var | Default | Description |
+Environment variables for `install.sh`:
+
+| Variable | Default | Description |
 |---|---|---|
 | `MINUTES_BIN` | `minutes` | Path to the `minutes` binary |
-| `MINUTES_LANGUAGE` | _(auto)_ | Default language code (`en`, `es`, `fr`, …) |
+| `MINUTES_LANGUAGE` | _(auto-detect)_ | Default language code (`en`, `es`, `fr`, …) |
 
-## Enable for audio understanding
+### Verify the installation
 
-Installing the plugin registers the provider, but OpenClaw only uses it once you
-wire it into `tools.media.audio.models` (same as any other audio provider —
-installation alone is not enough). One validated write:
+After running `install.sh`, restart the OpenClaw gateway so the config change applies, e.g.:
 
 ```bash
-openclaw config patch --stdin <<'EOF'
-{ tools: { media: { audio: { enabled: true, models: [ { type: "provider", provider: "minutes", model: "whisper.cpp" } ] } } } }
-EOF
-openclaw plugins doctor          # should report "No plugin issues detected"
-# restart the gateway so the change applies (e.g. systemctl --user restart openclaw-gateway)
+systemctl --user restart openclaw-gateway
 ```
 
-Verify end-to-end without sending a real voice note:
+Test end-to-end transcription:
 
 ```bash
 openclaw infer audio transcribe --file /path/to/audio.wav --json
-# routes through the minutes provider and prints the transcript
 ```
+
+This routes through the minutes provider and prints the transcript. If it fails, check:
+- `openclaw config view` confirms `tools.media.audio.models` contains `{ type: "provider", provider: "minutes" }`
+- `minutes --version` confirms binary is in PATH or at `MINUTES_BIN`
+- `openclaw plugins doctor` for plugin errors
 
 ## How it works
 
