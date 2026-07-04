@@ -2,29 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## MCP Tools: code-review-graph
-
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
-
-### When to use graph tools FIRST
-
-- **Exploring code**: `semantic_search_nodes` or `query_graph` instead of Grep
-- **Understanding impact**: `get_impact_radius` instead of manually tracing imports
-- **Code review**: `detect_changes` + `get_review_context` instead of reading entire files
-- **Finding relationships**: `query_graph` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview` + `list_communities`
-
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
 ## Project Overview
 
 **minutes-openclaw** is an OpenClaw plugin that registers the [Minutes](../minutes/) CLI as a local `MediaUnderstandingProvider`, giving any OpenClaw channel offline whisper.cpp audio transcription without cloud API calls.
 
 This repo is a thin TypeScript adapter — all transcription logic lives in the `minutes` binary from the parent project. See `../minutes/CLAUDE.md` for the full CLI architecture.
+
+## Stack
+
+- TypeScript, compiled with `tsc`
+- `vitest` for unit/integration tests
+- OpenClaw plugin SDK (`openclaw/plugin-sdk/plugin-entry`, peer dep, dev-only)
+- External dependency: `minutes` CLI binary (whisper.cpp wrapper, separate repo)
 
 ## Commands
 
@@ -85,7 +74,41 @@ test/
 | `minutesBin` | `"minutes"` (or `$MINUTES_BIN`) | Path to the `minutes` binary |
 | `language` | — | Default language code; per-request language takes precedence |
 
-Versions `<0.2.0` shelled out to `minutes process -t memo` and scraped the generated
-`.md` memo's `## Transcript` section, with a `persistMemo` option controlling whether
-that memo file was kept. `0.2.0+` uses `minutes transcribe --json` instead, which
-writes no files at all, so `persistMemo` was removed rather than deprecated.
+## Restricciones técnicas / historia relevante
+
+- Versions `<0.2.0` shelled out to `minutes process -t memo` and scraped the generated `.md` memo's `## Transcript` section, with a `persistMemo` option controlling whether that memo file was kept.
+- `0.2.0+` uses `minutes transcribe --json` instead, which writes no files at all, so `persistMemo` was removed rather than deprecated. No debe reintroducirse ese flujo.
+
+---
+
+## Comportamiento del agente
+
+### MCP Tools: code-review-graph
+
+**ALWAYS use the code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
+the codebase.** The graph is faster, cheaper (fewer tokens), and gives structural
+context (callers, dependents, test coverage) that file scanning cannot.
+
+| Necesidad | Usar |
+|---|---|
+| Explorar código | `semantic_search_nodes` o `query_graph` (no Grep) |
+| Entender impacto de un cambio | `get_impact_radius` (no rastrear imports a mano) |
+| Code review | `detect_changes` + `get_review_context` (no leer archivos completos) |
+| Relaciones entre nodos | `query_graph` con callers_of/callees_of/imports_of/tests_for |
+| Preguntas de arquitectura | `get_architecture_overview` + `list_communities` |
+
+Caer a Grep/Glob/Read **solo** cuando el grafo no cubra lo necesario.
+
+### Control de tokens
+
+- Inputs cortos y específicos. Sin repetir contexto ya dado.
+- Compartir solo los campos clave, no datos completos.
+- No usar modelos pesados para tareas simples.
+- Caveman rule: sin relleno, sin yapping. Respuestas directas.
+
+### Qué NO hacer
+
+- No generar código salvo que se pida explícitamente.
+- No ampliar el alcance sin confirmación.
+- No reintroducir el flujo de `persistMemo` / scraping de memos `.md`.
+- No usar Grep/Glob/Read como primera opción si el MCP `code-review-graph` puede responder la consulta.
