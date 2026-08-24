@@ -1,7 +1,14 @@
 {
-  "name": "minutes-openclaw",
+  "name": "@maosuarez/minutes-openclaw",
   "version": "0.2.0",
   "description": "Local whisper.cpp transcription via Minutes for OpenClaw",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maosuarez/minutes-openclaw.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "type": "module",
   "files": [
     "dist/",
